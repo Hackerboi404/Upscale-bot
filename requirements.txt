@@ -1,4 +1,4 @@
-aiogram
-gradio_client
-flask
-aiohttp
+fastapi
+uvicorn
+google-generativeai
+python-multipart

@@ -1,5 +1,5 @@
 aiogram
-replicate
 flask
 aiohttp
+gradio_client
 

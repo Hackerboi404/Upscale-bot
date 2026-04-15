@@ -1,0 +1,5 @@
+aiogram
+replicate
+flask
+aiohttp
+

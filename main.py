@@ -12,7 +12,7 @@ from config import BOT_TOKEN, HF_TOKEN, PORT
 # --- FLASK SETUP ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Bot is running perfectly!"
+def home(): return "Bot is running!"
 
 def run_flask():
     app.run(host='0.0.0.0', port=PORT)
@@ -21,7 +21,7 @@ def run_flask():
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# FIXED: 'hf_token' renamed to 'token'
+# Hugging Face Client
 client = Client("sczhou/CodeFormer", token=HF_TOKEN)
 
 @dp.message(Command("start"))
@@ -32,24 +32,27 @@ async def start_cmd(message: types.Message):
 async def handle_photo(message: types.Message):
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="🚀 Enhance Now (Free)", callback_data="do_enhance"))
-    await message.reply("Click karein:", reply_markup=builder.as_markup())
+    await message.reply("Quality enhance karne ke liye niche click karein:", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data == "do_enhance")
 async def process_image(callback: types.CallbackQuery):
     if not callback.message.reply_to_message or not callback.message.reply_to_message.photo:
-        return await callback.answer("Photo nahi mili!")
+        return await callback.answer("❌ Error: Photo nahi mili!")
 
-    await callback.message.edit_text("⏳ Processing... (Hugging Face AI)")
+    await callback.message.edit_text("⏳ AI Processing... (It might take 30-60s)")
 
     try:
+        # 1. Image ko local download karna (Zyada stable hai)
         file_id = callback.message.reply_to_message.photo[-1].file_id
-        file = await bot.get_file(file_id)
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
+        file_info = await bot.get_file(file_id)
+        input_path = f"input_{file_id}.jpg"
+        await bot.download_file(file_info.file_path, input_path)
 
-        # Processing...
+        # 2. AI Model ko local file bhejiyega
+        # CodeFormer params: [image, fidelity, background_enhance, face_upsample, upscale]
         job = client.submit(
-            file_url,   # image
-            0.5,        # fidelity
+            input_path, # Local file path
+            0.7,        # Fidelity (0.7 results in better quality usually)
             True,       # background_enhance
             True,       # face_upsample
             2,          # upscale
@@ -57,15 +60,24 @@ async def process_image(callback: types.CallbackQuery):
         )
         result = job.result()
 
+        # 3. Photo bhejna
         await bot.send_photo(
             callback.from_user.id,
             photo=FSInputFile(result),
-            caption="✅ Done! Powered by CodeFormer"
+            caption="✅ Done! Quality Improved."
         )
+        
+        # Cleanup: Local file delete karna
+        if os.path.exists(input_path):
+            os.remove(input_path)
+            
         await callback.message.delete()
 
     except Exception as e:
-        await callback.message.edit_text(f"❌ Error: {str(e)}")
+        # Agar CodeFormer fail ho raha hai, toh user ko batayein
+        await callback.message.edit_text(f"❌ AI Server Busy: {str(e)}\n\nThodi der baad dobara try karein.")
+        if 'input_path' in locals() and os.path.exists(input_path):
+            os.remove(input_path)
 
 async def main():
     Thread(target=run_flask, daemon=True).start()

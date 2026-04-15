@@ -1,147 +1,86 @@
 import os
 import httpx
-from fastapi import FastAPI, Form, Request
+import urllib.parse
+from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
-import urllib.parse
 
 app = FastAPI()
 
 # --- CONFIGURATION ---
-# Render dashboard mein SIXFINGER_KEY set karein
+# Render dashboard mein 'SIXFINGER_KEY' zaroor check karein
 SIXFINGER_KEY = os.environ.get("SIXFINGER_KEY", "")
+# New Stable API URL
+SIXFINGER_URL = "https://api.sixfinger.xyz/v1/chat/completions"
 
-# Sixfinger API endpoint (based on their setup)
-SIXFINGER_URL = "https://pi.pythonanywhere.com/v1/chat/completions"
-
-# --- UI DESIGN (Frontend) ---
+# --- UI DESIGN (Premium Glassmorphism) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>OmniAI - Sixfinger Powered</title>
+    <title>OmniAI - Sixfinger Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
-        body { 
-            background: #020617; 
-            color: #f8fafc; 
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            background-image: radial-gradient(circle at top right, #1e1b4b, transparent), radial-gradient(circle at bottom left, #0f172a, transparent);
-            overflow: hidden;
-        }
-        .glass { 
-            background: rgba(15, 23, 42, 0.7); 
-            backdrop-filter: blur(20px); 
-            border: 1px solid rgba(255,255,255,0.08); 
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        }
-        .neon-border:focus { 
-            border-color: #38bdf8; 
-            box-shadow: 0 0 20px rgba(56, 189, 248, 0.3); 
-        }
-        .loader { 
-            border: 2px solid #334155; 
-            border-top: 2px solid #38bdf8; 
-            border-radius: 50%; 
-            width: 18px; 
-            height: 18px; 
-            animation: spin 0.8s linear infinite; 
-            display: none; 
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        #output-area::-webkit-scrollbar { width: 4px; }
-        #output-area::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+        body { background: #020617; color: white; font-family: sans-serif; overflow: hidden; height: 100vh; }
+        .glass { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); }
+        .chat-container { height: calc(100vh - 180px); overflow-y: auto; scroll-behavior: smooth; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-3 md:p-6">
-    <div class="glass w-full max-w-3xl rounded-[2rem] p-5 md:p-8 flex flex-col h-[90vh] transition-all duration-300">
-        <header class="text-center mb-6">
-            <div class="inline-block px-3 py-1 mb-2 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold tracking-widest uppercase">
-                Free Tier AI Engine (200 Req/Month)
-            </div>
-            <h1 class="text-3xl md:text-5xl font-extrabold tracking-tight text-white">Omni<span class="text-blue-500">AI</span></h1>
-            <p class="text-slate-500 text-xs md:text-sm mt-1">Sixfinger + Pollinations | Think Mode: <span class="text-emerald-400">Automatic</span></p>
+<body class="flex items-center justify-center p-4">
+    <div class="glass w-full max-w-2xl rounded-[2.5rem] p-6 flex flex-col h-[95vh]">
+        <header class="text-center mb-4">
+            <h1 class="text-3xl font-extrabold">Omni<span class="text-blue-500">AI</span></h1>
+            <p class="text-slate-500 text-xs">Engine: Sixfinger | Status: <span class="text-emerald-500">Online</span></p>
         </header>
 
-        <div id="output-area" class="flex-grow space-y-6 overflow-y-auto px-1 pb-4 flex flex-col-reverse text-sm md:text-base">
-            <div class="text-slate-600 text-center text-xs py-10">
-                Type "Create a cyberpunk car" or ask any question...
-            </div>
-        </div>
+        <div id="output" class="chat-container space-y-4 mb-4 flex flex-col-reverse"></div>
 
-        <div class="relative mt-4 group">
-            <input type="text" id="userInput" 
-                placeholder="Ask or command anything..." 
-                class="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 md:py-5 px-6 pr-24 outline-none neon-border transition-all text-white placeholder:text-slate-600"
-                onkeypress="if(event.key === 'Enter') processInput()">
-            
+        <div class="relative mt-auto">
+            <input type="text" id="userInput" placeholder="Ask or command anything..." 
+                class="w-full bg-slate-950/50 border border-slate-800 rounded-2xl py-4 px-6 pr-24 outline-none focus:border-blue-500 transition-all text-white">
             <button onclick="processInput()" id="sendBtn" 
-                class="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-500 text-white px-5 rounded-xl font-bold transition-all flex items-center gap-2 shadow-lg shadow-blue-900/20">
-                <span id="btnText">Run</span>
-                <div class="loader" id="loader"></div>
-            </button>
-        </div>
-        
-        <div id="status" class="text-[9px] text-blue-500/60 mt-3 text-center tracking-widest uppercase font-bold opacity-0 transition-opacity">
-            Routing to best AI...
+                class="absolute right-2 top-2 bottom-2 bg-blue-600 px-6 rounded-xl font-bold hover:bg-blue-500 transition-all">Run</button>
         </div>
     </div>
 
     <script>
         async function processInput() {
             const input = document.getElementById('userInput');
-            const btnText = document.getElementById('btnText');
-            const loader = document.getElementById('loader');
-            const output = document.getElementById('output-area');
-            const status = document.getElementById('status');
+            const output = document.getElementById('output');
+            const btn = document.getElementById('sendBtn');
+            const prompt = input.value.trim();
+            if(!prompt) return;
 
-            if(!input.value.trim()) return;
-
-            const prompt = input.value;
             input.value = '';
-            
-            // UI Loading State
-            btnText.style.display = 'none';
-            loader.style.display = 'block';
-            status.style.opacity = '1';
-            
+            btn.disabled = true;
+            btn.innerText = "...";
+
             const formData = new FormData();
             formData.append('prompt', prompt);
 
             try {
-                const response = await fetch('/ask', { method: 'POST', body: formData });
-                const data = await response.json();
+                const res = await fetch('/ask', { method: 'POST', body: formData });
+                const data = await res.json();
                 
-                if (data.error) throw new Error(data.error);
-
                 const card = document.createElement('div');
-                card.className = "p-5 rounded-3xl bg-slate-900/40 border border-slate-800/60 backdrop-blur-sm animate-in fade-in slide-in-from-bottom-3 duration-500";
+                card.className = "p-4 rounded-2xl bg-slate-900/60 border border-slate-800 animate-pulse";
                 
-                let content = `<p class="text-[10px] font-bold text-slate-600 uppercase tracking-tighter mb-3">User: ${prompt}</p>`;
-
                 if(data.type === 'image') {
-                    content += `
-                        <div class="relative group overflow-hidden rounded-2xl">
-                            <img src="${data.result}" class="w-full h-auto object-cover transform transition-transform group-hover:scale-105" alt="AI Generated" onerror="this.src='https://via.placeholder.com/500?text=Image+Load+Failed'">
-                        </div>
-                        <p class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mt-3">Image Engine Active</p>`;
+                    card.innerHTML = `<img src="${data.result}" class="w-full rounded-xl" onload="this.parentElement.classList.remove('animate-pulse')">`;
                 } else {
-                    content += `
-                        <p class="text-slate-300 leading-relaxed">${data.result.replace(/\\n/g, '<br>')}</p>
-                        <p class="text-[10px] font-bold text-blue-400 uppercase tracking-widest mt-4">Sixfinger Chat Engine Active</p>`;
+                    card.classList.remove('animate-pulse');
+                    card.innerHTML = `<p class="text-slate-300 text-sm">${data.result}</p>`;
                 }
-                
-                card.innerHTML = content;
                 output.prepend(card);
-            } catch (err) {
-                alert("AI Error: " + err.message);
+            } catch (e) {
+                alert("Connection failed. Check API key.");
             } finally {
-                btnText.style.display = 'block';
-                loader.style.display = 'none';
-                status.style.opacity = '0';
+                btn.disabled = false;
+                btn.innerText = "Run";
             }
         }
     </script>
@@ -149,37 +88,34 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# --- BACKEND LOGIC ---
+# --- BACKEND ---
 
-async def call_sixfinger(prompt):
+async def call_ai(prompt):
     if not SIXFINGER_KEY:
-        return "Error: Render पर SIXFINGER_KEY सेट करें!"
+        return "Error: Render dashboard mein SIXFINGER_KEY set karein!"
     
     headers = {
         "Authorization": f"Bearer {SIXFINGER_KEY}",
         "Content-Type": "application/json"
     }
     
-    # Sixfinger ke documentation ke hisab se model name set karein
-    # Most likely 'llama-3-70b-instruct' ya similar chalega
+    # Standard Llama/GPT payload
     payload = {
-        "model": "llama-3-70b-instruct", 
+        "model": "gpt-3.5-turbo", 
         "messages": [{"role": "user", "content": prompt}]
     }
     
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(SIXFINGER_URL, headers=headers, json=payload, timeout=60.0)
+            response = await client.post(SIXFINGER_URL, headers=headers, json=payload, timeout=30.0)
             
             if response.status_code == 200:
                 result = response.json()
-                # standard openai format choices[0].message.content
                 return result['choices'][0]['message']['content']
             else:
-                return f"Sixfinger API Error: {response.status_code} - {response.text}"
-                
+                return f"API Error: Server ne {response.status_code} response diya. URL ya Key check karein."
     except Exception as e:
-        return f"System Error: {str(e)}"
+        return "Connection failed. Please try again later."
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -188,28 +124,16 @@ async def home():
 @app.post("/ask")
 async def handle_request(prompt: str = Form(...)):
     text = prompt.lower()
-    
-    # Auto-Decision Logic
-    image_trigger_words = [
-        "image", "photo", "banao", "picture", "drawing", 
-        "wallpaper", "art", "logo", "generate", "look like"
-    ]
-    
-    try:
-        if any(word in text for word in image_trigger_words):
-            # Route to Pollinations (Image) - This will always work
-            encoded_prompt = urllib.parse.quote(prompt)
-            seed = os.urandom(4).hex() 
-            image_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}"
-            return {"type": "image", "result": image_url}
-        
-        else:
-            # Route to Sixfinger (Chat)
-            result = await call_sixfinger(prompt)
-            return {"type": "text", "result": result}
-            
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    img_keywords = ["image", "photo", "banao", "picture", "logo", "wallpaper"]
+
+    if any(word in text for word in img_keywords):
+        encoded = urllib.parse.quote(prompt)
+        seed = os.urandom(2).hex()
+        image_url = f"https://pollinations.ai/p/{encoded}?width=1024&height=1024&nologo=true&seed={seed}"
+        return {"type": "image", "result": image_url}
+    else:
+        res = await call_ai(prompt)
+        return {"type": "text", "result": res}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))

@@ -8,91 +8,109 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 import replicate
 from config import BOT_TOKEN, REPLICATE_API_TOKEN, PORT
 
-# API Token Set karein
+# Replicate API Token set karein
 os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
 
-# Flask Setup (Port Binding ke liye)
+# --- FLASK SETUP (For Render Port Binding) ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot is Running!"
+    return "Bot is alive and running!"
 
 def run_flask():
     app.run(host='0.0.0.0', port=PORT)
 
-# Bot Setup
+# --- BOT SETUP ---
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# /start command
+# 1. /start command
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    await message.reply("👋 Welcome! Main AI Image Enhancer hoon.\n\nAbhi /upload command ka use karein.")
+    welcome_text = (
+        "👋 Welcome to AI Image Enhancer!\n\n"
+        "Main aapki low-quality photos ko HD mein badal sakta hoon.\n"
+        "Shuru karne ke liye /upload command ka use karein."
+    )
+    await message.reply(welcome_text)
 
-# /upload command
+# 2. /upload command
 @dp.message(Command("upload"))
 async def upload_cmd(message: types.Message):
-    await message.reply("📸 Please woh image bhejein jise aap enhance/upscale karna chahte hain.")
+    await message.reply("📸 Please woh photo bhejein jise aap enhance karna chahte hain.")
 
-# Image handling aur Buttons
+# 3. Photo milne par Buttons dikhana
 @dp.message(F.photo)
 async def handle_photo(message: types.Message):
-    photo_id = message.photo[-1].file_id
-    
+    # Callback data chhota rakha hai taaki 'BUTTON_DATA_INVALID' error na aaye
     builder = InlineKeyboardBuilder()
-    # Callback data mein hum resolution aur file_id save kar rahe hain
-    builder.row(types.InlineKeyboardButton(text="360p to 720p (2x)", callback_data=f"up_2_{photo_id}"))
-    builder.row(types.InlineKeyboardButton(text="720p to 1080p (4x)", callback_data=f"up_4_{photo_id}"))
-    builder.row(types.InlineKeyboardButton(text="Face Clean + 4x", callback_data=f"face_4_{photo_id}"))
+    builder.row(types.InlineKeyboardButton(text="2x (720p Style)", callback_data="upscale_2"))
+    builder.row(types.InlineKeyboardButton(text="4x (1080p/Ultra HD)", callback_data="upscale_4"))
+    builder.row(types.InlineKeyboardButton(text="✨ Face Clean + 4x", callback_data="upscale_face"))
     
-    await message.reply("Resolution select karein jisme aapko output chahiye:", reply_markup=builder.as_markup())
+    await message.reply(
+        "Quality select karein:", 
+        reply_markup=builder.as_markup()
+    )
 
-# Processing Logic
-@dp.callback_query(F.data.startswith(("up_", "face_")))
+# 4. Processing Logic (Jab button click ho)
+@dp.callback_query(F.data.startswith("upscale_"))
 async def process_image(callback: types.CallbackQuery):
-    data = callback.data.split("_")
-    mode = data[0] # up ya face
-    scale = int(data[1])
-    file_id = data[2]
+    choice = callback.data.split("_")[1]
     
-    await callback.message.edit_text("⏳ AI Processing shuru ho gayi hai... Isme 10-20 seconds lag sakte hain.")
+    # Check karein ki kya ye kisi photo ka reply hai
+    if not callback.message.reply_to_message or not callback.message.reply_to_message.photo:
+        await callback.answer("❌ Error: Original photo nahi mili. Dubara bhejien.", show_alert=True)
+        return
+
+    await callback.message.edit_text("⚡ AI Processing shuru... Isme thoda waqt lagta hai.")
     
     try:
-        # 1. Image URL nikalna
+        # File ID nikalna original photo se
+        file_id = callback.message.reply_to_message.photo[-1].file_id
         file = await bot.get_file(file_id)
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file.file_path}"
         
-        # 2. Replicate API call
-        is_face = True if mode == "face" else False
+        # Scale aur Face logic set karna
+        scale = 4 if choice in ["4", "face"] else 2
+        face_fix = True if choice == "face" else False
         
+        # Replicate AI model run karna
         output = replicate.run(
             "nightmareai/real-esrgan:42fed1c09745c7929424e6ca6f437c3756088d8b9d0739f723652873d6d5663a",
             input={
                 "image": file_url,
                 "upscale": scale,
-                "face_enhance": is_face
+                "face_enhance": face_fix
             }
         )
         
-        # 3. Output bhejna
-        await callback.message.delete()
+        # Result bhej dena
+        await callback.message.delete() # 'Processing' message hatayein
         await bot.send_photo(
             callback.from_user.id, 
             photo=output, 
-            caption=f"✅ Image Enhanced! Scale: {scale}x\nMode: {'Face Clean' if is_face else 'Standard'}"
+            caption=f"✅ Done!\n🚀 Scale: {scale}x\n👤 Face Fix: {'On' if face_fix else 'Off'}"
         )
         
     except Exception as e:
-        await callback.message.edit_text(f"❌ Error: {str(e)}")
+        await callback.message.edit_text(f"❌ Kuch galat ho gaya: {str(e)}")
 
-# Bot Runner
+# --- MAIN RUNNER ---
 async def main():
-    # Flask ko background mein chalayein
-    Thread(target=run_flask).start()
+    # Flask ko background thread mein start karein
+    flask_thread = Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    print("Bot is starting...")
     # Bot polling shuru karein
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
-  
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        print("Bot stopped.")
+        

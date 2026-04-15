@@ -3,14 +3,20 @@ import google.generativeai as genai
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
+import urllib.parse  # Very Important for image prompts
 
 app = FastAPI()
 
 # --- CONFIGURATION ---
-# Render ke Environment Variables se key lega, agar nahi mili toh placeholder
-GEMINI_KEY = os.environ.get("GEMINI_KEY", "YOUR_GEMINI_FREE_API_KEY")
-genai.configure(api_key=GEMINI_KEY)
-chat_model = genai.GenerativeModel('gemini-1.5-flash')
+# Render settings -> Environment Variables mein GEMINI_KEY zaroor add karein
+GEMINI_KEY = os.environ.get("GEMINI_KEY", "")
+
+# Gemini setup with Error Handling
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+    chat_model = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    print("CRITICAL: GEMINI_KEY is missing in Environment Variables!")
 
 # --- UI DESIGN (Frontend) ---
 HTML_TEMPLATE = """
@@ -100,7 +106,6 @@ HTML_TEMPLATE = """
             const prompt = input.value;
             input.value = '';
             
-            // UI Loading State
             btnText.style.display = 'none';
             loader.style.display = 'block';
             status.style.opacity = '1';
@@ -112,15 +117,17 @@ HTML_TEMPLATE = """
                 const response = await fetch('/ask', { method: 'POST', body: formData });
                 const data = await response.json();
                 
+                if (data.error) throw new Error(data.error);
+
                 const card = document.createElement('div');
-                card.className = "p-5 rounded-3xl bg-slate-900/50 border border-slate-800/50 backdrop-blur-sm animate-in fade-in slide-in-from-bottom-4 duration-500";
+                card.className = "p-5 rounded-3xl bg-slate-900/50 border border-slate-800/50 backdrop-blur-sm animate-in fade-in slide-in-from-bottom-4 duration-500 mb-4";
                 
                 let content = `<p class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter mb-3">Prompt: ${prompt}</p>`;
 
                 if(data.type === 'image') {
                     content += `
                         <div class="relative group overflow-hidden rounded-2xl">
-                            <img src="${data.result}" class="w-full h-auto object-cover transform transition-transform group-hover:scale-105" alt="AI Generated">
+                            <img src="${data.result}" class="w-full h-auto object-cover transform transition-transform group-hover:scale-105" alt="AI Generated" onerror="this.src='https://via.placeholder.com/500?text=Image+Load+Failed'">
                         </div>
                         <div class="mt-3 flex items-center gap-2">
                             <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -138,8 +145,7 @@ HTML_TEMPLATE = """
                 card.innerHTML = content;
                 output.prepend(card);
             } catch (err) {
-                console.error(err);
-                alert("Connection failed. Check your API key.");
+                alert("AI Error: " + err.message);
             } finally {
                 btnText.style.display = 'block';
                 loader.style.display = 'none';
@@ -161,7 +167,7 @@ async def home():
 async def handle_request(prompt: str = Form(...)):
     text = prompt.lower()
     
-    # Auto-Decision Logic (Image vs Chat)
+    # Keyword list to trigger Image AI
     image_trigger_words = [
         "image", "photo", "banao", "picture", "drawing", 
         "wallpaper", "art", "logo", "sketch", "generate", "look like"
@@ -169,13 +175,17 @@ async def handle_request(prompt: str = Form(...)):
     
     try:
         if any(word in text for word in image_trigger_words):
-            # Route to Pollinations (Flux model used via 'model' param)
-            seed = os.urandom(4).hex() # To get a fresh image every time
-            image_url = f"https://pollinations.ai/p/{prompt.replace(' ', '%20')}?width=1024&height=1024&nologo=true&model=flux&seed={seed}"
+            # FIXED: URL Encoding for prompts with spaces/Hindi
+            encoded_prompt = urllib.parse.quote(prompt)
+            seed = os.urandom(4).hex() 
+            image_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1024&nologo=true&model=flux&seed={seed}"
             return {"type": "image", "result": image_url}
         
         else:
-            # Route to Gemini 1.5 Flash
+            # Check if Gemini is configured
+            if not GEMINI_KEY:
+                return {"error": "Gemini API Key missing on Render Dashboard!"}
+            
             response = chat_model.generate_content(prompt)
             return {"type": "text", "result": response.text}
             
@@ -183,7 +193,6 @@ async def handle_request(prompt: str = Form(...)):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 if __name__ == "__main__":
-    # Render Dynamic Port Binding
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
     

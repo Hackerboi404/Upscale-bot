@@ -1,5 +1,5 @@
-fastapi
-uvicorn
-python-multipart
-openai
-requests
+aiogram
+youtube-search-python
+python-dotenv
+flask
+gunicorn

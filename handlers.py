@@ -1,8 +1,13 @@
+import os
+import requests
 from aiogram import Router, types
 from aiogram.filters import Command
-from youtubesearchpython import VideosSearch
+from aiogram.utils.formatting import Text, Bold, Italic
 
 router = Router()
+
+# API Key environment variable se le rahe hain
+YOUTUBE_API_KEY = os.getenv("YT_API_KEY")
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -15,35 +20,54 @@ async def search_video(message: types.Message):
     if not query:
         return await message.answer("Bhai, kya search karna hai? Example: `/search animal movie trailer`")
 
+    # API key check - agar Render pe set nahi ki hai toh
+    if not YOUTUBE_API_KEY:
+        print("Error: YT_API_KEY environment variable mein nahi mili.")
+        return await message.answer("⚠️ Bot configuration mein issue hai. Developer se contact karein.")
+
     searching_msg = await message.answer("🔍 Dhoondh raha hoon...")
 
     try:
-        # YouTube search (sirf 1 result uthayenge fast response ke liye)
-        videos_search = VideosSearch(query, limit=1)
-        results = videos_search.result()
+        # Official YouTube API URL - hum sasti API call kar rahe hain (1 point)
+        url = (
+            f"https://www.googleapis.com/youtube/v3/search"
+            f"?part=snippet&q={query}&maxResults=1&type=video&key={YOUTUBE_API_KEY}"
+        )
+        
+        response = requests.get(url, timeout=10)
+        data = response.json()
 
-        if results['result']:
-            video = results['result'][0]
-            title = video['title']
-            link = video['link']
-            duration = video['duration']
-            views = video['viewCount']['short']
+        # Pehle check karo API ne koi error toh nahi diya (quota issue etc.)
+        if "error" in data:
+            print(f"YouTube API Error: {data['error']['message']}")
+            await searching_msg.edit_text("⚠️ YouTube API mein kuch dikkat hai. Thodi der baad try karein.")
+            return
+
+        # Check karo result mila ya nahi
+        if "items" in data and len(data["items"]) > 0:
+            video_data = data["items"][0]
+            video_id = video_data["id"]["videoId"]
+            title = video_data["snippet"]["title"]
+            channel = video_data["snippet"]["channelTitle"]
+            link = f"https://www.youtube.com/watch?v={video_id}"
             
-            # Caption design
+            # Message formatting
             caption = (
-                f"🎥 **{title}**\n\n"
-                f"⏳ **Duration:** {duration}\n"
-                f"👁‍🗨 **Views:** {views}\n\n"
+                f"🎥 {Bold(title)}\n\n"
+                f"📺 Channel: {Italic(channel)}\n\n"
                 f"👇 Niche thumbnail pe 'Play' button dabayein!"
             )
             
-            # Pehle wala "Searching" message delete karke link bhejenge
+            # Link pehle bhej rahe hain taaki Telegram preview generate kare
             await searching_msg.delete()
-            await message.answer(f"{link}\n\n{caption}")
+            await message.answer(f"{link}\n\n{caption.as_markdown()}", parse_mode="MarkdownV2")
         else:
             await searching_msg.edit_text("❌ Kuch nahi mila, kuch aur try karo.")
             
+    except requests.exceptions.RequestException as e:
+        print(f"Network Error: {e}")
+        await searching_msg.edit_text("⚠️ Network issue. Please thodi der baad try karein.")
     except Exception as e:
-        await searching_msg.edit_text("⚠️ Kuch error aaya, thodi der baad try karein.")
-        print(f"Error: {e}")
-      
+        print(f"Unexpected Error: {e}")
+        await searching_msg.edit_text("⚠️ Kuch unexpected error aaya.")
+        

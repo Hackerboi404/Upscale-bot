@@ -8,10 +8,10 @@ import uvicorn
 app = FastAPI()
 
 # --- CONFIGURATION ---
-# Render Dashboard mein 'HF_TOKEN' set karein
+# Render dashboard mein 'HF_TOKEN' set karein
 HF_TOKEN = os.environ.get("HF_TOKEN")
 
-# OpenAI-compatible Client for Hugging Face
+# OpenAI-compatible Client for Hugging Face (Chat API)
 client = None
 if HF_TOKEN:
     client = OpenAI(
@@ -19,33 +19,34 @@ if HF_TOKEN:
         api_key=HF_TOKEN,
     )
 
-# --- UI DESIGN (Premium Glassmorphism) ---
+# --- UI DESIGN (Fixed Image Display) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>OmniAI - Smart Engine</title>
+    <title>OmniAI - Ultra Fixed</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background: #020617; color: white; font-family: sans-serif; overflow: hidden; height: 100vh; }
         .glass { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(25px); border: 1px solid rgba(255,255,255,0.1); }
         .chat-area { height: calc(100vh - 180px); overflow-y: auto; scroll-behavior: smooth; }
-        .msg-card { background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.05); transition: all 0.3s; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+        .msg-card { background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.05); }
+        .img-box { min-height: 200px; background: #0f172a; border-radius: 1rem; position: relative; }
+        .loader-spin { border: 3px solid #1e293b; border-top: 3px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="flex items-center justify-center p-3 md:p-6">
     <div class="glass w-full max-w-2xl rounded-[2.5rem] p-5 md:p-8 flex flex-col h-[95vh]">
         <header class="text-center mb-4">
-            <h1 class="text-3xl font-black tracking-tight italic">Omni<span class="text-blue-500">AI</span></h1>
-            <p class="text-[9px] text-slate-500 uppercase tracking-widest">MiniMax + Pollinations Hybrid</p>
+            <h1 class="text-3xl font-black italic">Omni<span class="text-blue-500">AI</span></h1>
+            <p class="text-[9px] text-slate-500 uppercase tracking-widest">Chat: HF | Image: Pollinations</p>
         </header>
 
         <div id="chat" class="chat-area space-y-4 mb-4 pr-1">
-            <div class="msg-card p-4 rounded-2xl text-sm text-slate-300">Ready! Try asking: "Generate a neon car photo"</div>
+            <div class="msg-card p-4 rounded-2xl text-sm text-slate-300 italic">Try: "Cyberpunk car ki photo banao"</div>
         </div>
 
         <div class="relative mt-auto">
@@ -78,19 +79,21 @@ HTML_TEMPLATE = """
                 div.className = "msg-card p-4 rounded-2xl animate-in fade-in slide-in-from-bottom-2 duration-300";
                 
                 if(data.type === 'image') {
+                    // Yahan humne error handling daali hai taaki broken icon na dikhe
                     div.innerHTML = `
-                        <p class="text-[10px] text-blue-400 font-bold mb-2 uppercase tracking-tighter italic">AI Generated Image</p>
-                        <img src="${data.result}" class="w-full h-auto rounded-xl shadow-lg" loading="lazy">`;
+                        <p class="text-[10px] text-blue-400 font-bold mb-2 uppercase italic tracking-widest">Image Engine</p>
+                        <div class="img-box flex items-center justify-center">
+                            <img src="${data.result}" class="w-full h-auto rounded-xl shadow-2xl" 
+                                 onload="this.previousElementSibling ? this.previousElementSibling.remove() : null"
+                                 onerror="this.src='https://via.placeholder.com/500?text=Image+Generation+Failed'">
+                        </div>`;
                 } else {
                     div.innerHTML = `<p class="text-sm leading-relaxed text-slate-200">${data.result}</p>`;
                 }
                 chat.appendChild(div);
                 chat.scrollTop = chat.scrollHeight;
             } catch(e) {
-                const errDiv = document.createElement('div');
-                errDiv.className = "p-4 rounded-2xl bg-red-900/20 text-red-400 text-xs";
-                errDiv.innerText = "Error: Token issue or server timeout.";
-                chat.appendChild(errDiv);
+                console.error(e);
             } finally {
                 btn.disabled = false;
                 btn.innerText = 'Run';
@@ -111,33 +114,33 @@ async def home():
 async def handle_request(prompt: str = Form(...)):
     text = prompt.lower()
     
-    # Ye keywords check karenge ki user photo chahta hai ya nahi
-    img_keywords = ["image", "photo", "banao", "picture", "logo", "wallpaper", "generate", "create", "drawing", "pic"]
+    # Keywords check
+    img_keywords = ["image", "photo", "banao", "picture", "logo", "wallpaper", "generate", "create", "pic"]
 
     try:
-        # LOGIC 1: Agar image keyword hai, toh AI ko call hi mat karo
+        # LOGIC: 2 APIs ka use
         if any(word in text for word in img_keywords):
-            encoded = urllib.parse.quote(prompt)
-            # Har baar alag image ke liye seed change
+            # API 1: Pollinations for Images
+            # Important: Hindi prompts ke liye quote zaroori hai
+            safe_prompt = urllib.parse.quote(prompt)
             seed = os.urandom(2).hex()
-            image_url = f"https://pollinations.ai/p/{encoded}?width=1024&height=1024&nologo=true&seed={seed}"
+            image_url = f"https://pollinations.ai/p/{safe_prompt}?width=1024&height=1024&nologo=true&seed={seed}"
             return {"type": "image", "result": image_url}
         
-        # LOGIC 2: Agar normal chat hai, toh Hugging Face use karo
         else:
+            # API 2: Hugging Face (MiniMax) for Chat
             if not client:
-                return {"type": "text", "result": "Error: HF_TOKEN set nahi hai dashboard mein!"}
+                return {"type": "text", "result": "Error: HF_TOKEN missing in Render Env!"}
             
             completion = client.chat.completions.create(
                 model="MiniMaxAI/MiniMax-M2.7:together",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=500
+                max_tokens=700
             )
-            ai_reply = completion.choices[0].message.content
-            return {"type": "text", "result": ai_reply}
+            return {"type": "text", "result": completion.choices[0].message.content}
 
     except Exception as e:
-        return {"type": "text", "result": f"Execution Error: {str(e)}"}
+        return {"type": "text", "result": f"System Error: {str(e)}"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))

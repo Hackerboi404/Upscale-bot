@@ -2,7 +2,9 @@ import os
 import requests
 from aiogram import Router, types
 from aiogram.filters import Command
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import InputFile
+from pytube import YouTube
+from aiogram.utils.markdown import hbold, hitalic
 
 router = Router()
 
@@ -13,17 +15,16 @@ async def search_video(message: types.Message):
     query = message.text.replace("/search", "").strip()
     
     if not query:
-        return await message.answer("Bhai, search query toh dalo!")
+        return await message.answer(f"Bhai, {hbold('Despacito')} jaise search query dalo!", parse_mode="HTML")
 
-    # Initial message
-    searching_msg = await message.answer("🔍 Dhoondh raha hoon...")
+    status_msg = await message.answer(f"⏳ {hbold('Dhoondh raha hoon...')}", parse_mode="HTML")
 
     try:
+        # YouTube API Search
         url = (
             f"https://www.googleapis.com/youtube/v3/search"
             f"?part=snippet&q={query}&maxResults=1&type=video&key={YOUTUBE_API_KEY}"
         )
-        
         response = requests.get(url, timeout=10)
         data = response.json()
 
@@ -31,26 +32,40 @@ async def search_video(message: types.Message):
             video_data = data["items"][0]
             video_id = video_data["id"]["videoId"]
             title = video_data["snippet"]["title"]
-            link = f"https://www.youtube.com/watch?v={video_id}"
-            
-            caption = f"🎥 *{title}*\n\n👇 Play button pe click karein\!"
+            channel_title = video_data["snippet"]["channelTitle"]
+            yt_link = f"https://www.youtube.com/watch?v={video_id}"
 
-            # Sabse pehle purana message delete karne ki koshish karo
-            try:
-                await searching_msg.delete()
-            except TelegramBadRequest:
-                pass # Agar pehle se delete ho gaya toh koi baat nahi
+            # UI Update: Ab video stream kar rahe hain
+            await status_msg.edit_text(f"⏳ {hitalic(title)} ko stream kar raha hoon...", parse_mode="HTML")
 
-            # Naya message link ke saath bhejo
-            # Note: Link pehle bhej rahe hain taaki Telegram preview pakad le
-            await message.answer(f"{link}\n\n{caption}", parse_mode="MarkdownV2")
+            # Pytube se stream link nikalna
+            yt = YouTube(yt_link)
+            stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
             
+            if stream:
+                stream_url = stream.url
+                
+                # Caption design
+                caption_text = (
+                    f"🎥 {hbold(title)}\n\n"
+                    f"📺 Channel: {hitalic(channel_title)}\n\n"
+                    f"👇 Play button dabayein, chat mein hi video enjoy karein!"
+                )
+
+                # Send_Video use karna native bubble play ke liye
+                await message.reply_video(
+                    video=stream_url,
+                    caption=caption_text,
+                    parse_mode="HTML"
+                )
+                
+                await status_msg.delete()
+            else:
+                await status_msg.edit_text("❌ Streamable link nahi mila. Kuch aur try karein.")
         else:
-            # Edit karne mein aksar error aata hai, isliye answer bhej dena safe hai
-            await message.answer("❌ Kuch nahi mila.")
+            await status_msg.edit_text("❌ Kuch nahi mila.")
             
     except Exception as e:
-        print(f"Error occurred: {e}")
-        # Agar error aaye toh naya message bhej do, edit ke chakkar mein mat pado
-        await message.answer("⚠️ Kuch error aaya, thodi der baad try karein.")
+        print(f"Error logic mein: {e}")
+        await status_msg.edit_text(f"⚠️ Kuch error aaya: {e}")
         

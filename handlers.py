@@ -2,20 +2,32 @@ import os
 import requests
 from aiogram import Router, types
 from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.exceptions import TelegramBadRequest
 
 router = Router()
 
 YOUTUBE_API_KEY = os.getenv("YT_API_KEY")
+
+@router.message(Command("start"))
+async def cmd_start(message: types.Message):
+    # Welcome message in Hindi/Hinglish
+    welcome_text = (
+        "Swaagat hai bhai! ✨\n\n"
+        "Main tumhare liye YouTube se videos dhoondh sakta hoon.\n\n"
+        "🔍 *Kaise use karein?*\n"
+        "Bas `/search [gaane ka naam]` likho.\n\n"
+        "💡 *Pro Tip:* Video play hone ke baad upar 3-dots par click karke 'Minimize' kar dena, fir chat bhi kar paoge aur video bhi chalti rahegi!"
+    )
+    await message.answer(welcome_text, parse_mode="Markdown")
 
 @router.message(Command("search"))
 async def search_video(message: types.Message):
     query = message.text.replace("/search", "").strip()
     
     if not query:
-        return await message.answer("🔍 Please enter something to search!")
+        return await message.answer("Bhai, search query toh dalo! Example: `/search Arijit Singh`")
 
-    searching_msg = await message.answer("⚡ *Searching on YouTube...*", parse_mode="Markdown")
+    searching_msg = await message.answer("🔍 Dhoondh raha hoon...")
 
     try:
         url = (
@@ -30,33 +42,28 @@ async def search_video(message: types.Message):
             video_data = data["items"][0]
             video_id = video_data["id"]["videoId"]
             title = video_data["snippet"]["title"]
-            channel = video_data["snippet"]["channelTitle"]
             link = f"https://www.youtube.com/watch?v={video_id}"
             
-            # --- CUSTOM UI BUTTONS ---
-            builder = InlineKeyboardBuilder()
-            # In buttons se bot ka UI "App" jaisa lagega
-            builder.row(types.InlineKeyboardButton(text="🎵 Full Song", url=link))
-            builder.add(types.InlineKeyboardButton(text="📤 Share", url=f"https://t.me/share/url?url={link}"))
-            builder.row(types.InlineKeyboardButton(text="🔥 More from this Channel", url=f"https://www.youtube.com/channel/{video_data['snippet']['channelId']}"))
-
+            # 3-dot minimize instruction added here
             caption = (
-                f"✨ *Now Playing: {title}*\n\n"
-                f"👤 *Channel:* {channel}\n"
-                f"💎 *Quality:* HD\n\n"
-                f"🎬 _Click the play button on the video above to start inside the chat!_"
+                f"🎥 *{title}*\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"✅ *Step 1:* Niche video play karein\.\n"
+                f"✅ *Step 2:* Upar 3\-dots \(⋮\) par click karein\.\n"
+                f"✅ *Step 3:* 'Minimize' select karein aur enjoy karein\! 🔥"
             )
 
-            await searching_msg.delete()
-            # Link pehle bhej rahe hain taaki Telegram preview (Player) trigger kare
-            await message.answer(
-                f"{link}\n\n{caption}", 
-                parse_mode="Markdown",
-                reply_markup=builder.as_markup()
-            )
+            try:
+                await searching_msg.delete()
+            except TelegramBadRequest:
+                pass 
+
+            await message.answer(f"{link}\n\n{caption}", parse_mode="MarkdownV2")
+            
         else:
-            await searching_msg.edit_text("❌ No results found.")
+            await message.answer("❌ Kuch nahi mila, naam sahi se check karo.")
             
     except Exception as e:
-        await searching_msg.edit_text(f"⚠️ API Error: Check if YT_API_KEY is correct.")
+        print(f"Error occurred: {e}")
+        await message.answer("⚠️ Kuch error aaya, thodi der baad try karein.")
         

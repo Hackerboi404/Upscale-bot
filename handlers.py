@@ -10,22 +10,22 @@ YOUTUBE_API_KEY = os.getenv("YT_API_KEY")
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
-    # Welcome message in Hindi/Hinglish
+    # Welcome message in HTML (More stable)
     welcome_text = (
-        "Swaagat hai bhai! ✨\n\n"
+        "<b>Swaagat hai bhai!</b> ✨\n\n"
         "Main tumhare liye YouTube se videos dhoondh sakta hoon.\n\n"
-        "🔍 *Kaise use karein?*\n"
-        "Bas `/search [gaane ka naam]` likho.\n\n"
-        "💡 *Pro Tip:* Video play hone ke baad upar 3-dots par click karke 'Minimize' kar dena, fir chat bhi kar paoge aur video bhi chalti rahegi!"
+        "🔍 <b>Kaise use karein?</b>\n"
+        "Bas <code>/search gaane ka naam</code> likho.\n\n"
+        "💡 <b>Pro Tip:</b> Video play hone ke baad upar 3-dots par click karke 'Minimize' kar dena, fir chat bhi kar paoge aur video bhi chalti rahegi!"
     )
-    await message.answer(welcome_text, parse_mode="Markdown")
+    await message.answer(welcome_text, parse_mode="HTML")
 
 @router.message(Command("search"))
 async def search_video(message: types.Message):
     query = message.text.replace("/search", "").strip()
     
     if not query:
-        return await message.answer("Bhai, search query toh dalo! Example: `/search Arijit Singh`")
+        return await message.answer("Bhai, search query toh dalo! Example: <code>/search Arijit Singh</code>", parse_mode="HTML")
 
     searching_msg = await message.answer("🔍 Dhoondh raha hoon...")
 
@@ -44,13 +44,13 @@ async def search_video(message: types.Message):
             title = video_data["snippet"]["title"]
             link = f"https://www.youtube.com/watch?v={video_id}"
             
-            # 3-dot minimize instruction added here
+            # Instruction message with clear steps
             caption = (
-                f"🎥 *{title}*\n\n"
+                f"🎥 <b>{title}</b>\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"✅ *Step 1:* Niche video play karein\.\n"
-                f"✅ *Step 2:* Upar 3\-dots \(⋮\) par click karein\.\n"
-                f"✅ *Step 3:* 'Minimize' select karein aur enjoy karein\! 🔥"
+                f"✅ <b>Step 1:</b> Niche video play karein.\n"
+                f"✅ <b>Step 2:</b> Upar 3-dots (⋮) par click karein.\n"
+                f"✅ <b>Step 3:</b> 'Minimize' select karein aur enjoy karein! 🔥"
             )
 
             try:
@@ -58,12 +58,17 @@ async def search_video(message: types.Message):
             except TelegramBadRequest:
                 pass 
 
-            await message.answer(f"{link}\n\n{caption}", parse_mode="MarkdownV2")
+            # Link aur caption bhej rahe hain (HTML mode mein)
+            await message.answer(f"{link}\n\n{caption}", parse_mode="HTML")
             
         else:
-            await message.answer("❌ Kuch nahi mila, naam sahi se check karo.")
+            await searching_msg.edit_text("❌ Kuch nahi mila, naam sahi se check karo.")
             
     except Exception as e:
         print(f"Error occurred: {e}")
-        await message.answer("⚠️ Kuch error aaya, thodi der baad try karein.")
-        
+        # Agar error aaye toh purane message ko edit karke error dikhao (debugging ke liye)
+        try:
+            await searching_msg.edit_text(f"⚠️ Error: {str(e)[:50]}")
+        except:
+            await message.answer("⚠️ Kuch technical issue hai.")
+            

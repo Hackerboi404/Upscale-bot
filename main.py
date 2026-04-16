@@ -1,77 +1,55 @@
 import os
-import httpx
 import urllib.parse
+from openai import OpenAI
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
 import uvicorn
 
 app = FastAPI()
 
-# --- CONFIGURATION (Render Dashboard mein ye keys daalein) ---
-# OpenRouter Free models ke liye key yahan se milti hai: https://openrouter.ai/keys
-OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "")
+# --- CONFIGURATION ---
+# Code ab seedha Render ke environment se token uthayega
+HF_TOKEN = os.environ.get("HF_TOKEN")
 
-# --- AI ENGINES ---
+# Client setup (Sirf tabhi chalega jab token milega)
+client = None
+if HF_TOKEN:
+    client = OpenAI(
+        base_url="https://router.huggingface.co/v1",
+        api_key=HF_TOKEN,
+    )
 
-async def call_openrouter(prompt):
-    if not OPENROUTER_KEY:
-        return "Error: Render par OPENROUTER_KEY set karein!"
-    
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_KEY}",
-        "HTTP-Referer": "https://render.com", # Required by OpenRouter
-        "Content-Type": "application/json"
-    }
-    
-    # Hum 'free' model use karenge jo hamesha chalta hai
-    payload = {
-        "model": "google/gemini-2.0-flash-exp:free", 
-        "messages": [{"role": "user", "content": prompt}]
-    }
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, headers=headers, json=payload, timeout=20.0)
-            if response.status_code == 200:
-                return response.json()['choices'][0]['message']['content']
-            else:
-                return f"OpenRouter Error: {response.status_code}. Key check karein."
-    except Exception as e:
-        return "Connection failed. Please try again."
-
-# --- UI DESIGN (Wahi Premium Glassmorphism) ---
+# --- UI DESIGN ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>OmniAI - G4F Style</title>
+    <title>OmniAI - Private Engine</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background: #020617; color: white; font-family: sans-serif; overflow: hidden; height: 100vh; }
         .glass { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(25px); border: 1px solid rgba(255,255,255,0.1); }
-        .chat-area { height: calc(100vh - 200px); overflow-y: auto; }
-        .user-msg { background: #1e293b; border-radius: 1.5rem 1.5rem 0 1.5rem; }
-        .ai-msg { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 1.5rem 1.5rem 1.5rem 0; }
+        .chat-area { height: calc(100vh - 200px); overflow-y: auto; scroll-behavior: smooth; }
+        .msg-bubble { background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255,255,255,0.05); }
     </style>
 </head>
-<body class="flex items-center justify-center p-2 md:p-6">
-    <div class="glass w-full max-w-2xl rounded-[2.5rem] p-5 md:p-8 flex flex-col h-[95vh]">
-        <header class="text-center mb-4">
-            <h1 class="text-3xl font-black tracking-tighter">Omni<span class="text-blue-500">AI</span></h1>
-            <p class="text-[10px] text-slate-500 uppercase tracking-widest">Multi-Provider Orchestrator</p>
+<body class="flex items-center justify-center p-4">
+    <div class="glass w-full max-w-2xl rounded-[2.5rem] p-6 flex flex-col h-[95vh]">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl font-black italic">Omni<span class="text-blue-500">AI</span></h1>
+            <p class="text-[10px] text-slate-500 uppercase tracking-widest">Secure HF Router Active</p>
         </header>
 
-        <div id="chat" class="chat-area space-y-4 mb-4 pr-2">
-            <div class="ai-msg p-4 text-sm text-slate-300">Hello! Main kaise madad kar sakta hoon?</div>
+        <div id="chat" class="chat-area space-y-4 mb-4 pr-2 text-sm text-slate-300">
+            <div class="msg-bubble p-4 rounded-2xl">Setup Complete. Kya help kar sakta hoon?</div>
         </div>
 
         <div class="relative mt-auto">
             <input type="text" id="userInput" placeholder="Ask anything..." 
-                class="w-full bg-slate-900/50 border border-slate-800 rounded-2xl py-4 px-5 pr-20 outline-none focus:border-blue-500 transition-all">
-            <button onclick="send()" id="sendBtn" class="absolute right-2 top-2 bottom-2 bg-blue-600 px-5 rounded-xl font-bold">Run</button>
+                class="w-full bg-slate-950 border border-slate-800 rounded-2xl py-4 px-5 pr-20 outline-none focus:border-blue-500 transition-all">
+            <button onclick="send()" id="sendBtn" class="absolute right-2 top-2 bottom-2 bg-blue-600 px-6 rounded-xl font-bold hover:bg-blue-500">Run</button>
         </div>
     </div>
 
@@ -94,17 +72,17 @@ HTML_TEMPLATE = """
                 const data = await res.json();
                 
                 const div = document.createElement('div');
+                div.className = "msg-bubble p-4 rounded-2xl animate-in fade-in duration-300";
+                
                 if(data.type === 'image') {
-                    div.className = "ai-msg p-2";
                     div.innerHTML = `<img src="${data.result}" class="w-full rounded-xl">`;
                 } else {
-                    div.className = "ai-msg p-4 text-sm";
-                    div.innerText = data.result;
+                    div.innerHTML = `<p>${data.result}</p>`;
                 }
                 chat.appendChild(div);
                 chat.scrollTop = chat.scrollHeight;
             } catch(e) {
-                alert("Error connecting to server.");
+                alert("Check if HF_TOKEN is set in Render Dashboard.");
             } finally {
                 btn.innerText = 'Run';
             }
@@ -114,7 +92,7 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# --- ROUTES ---
+# --- BACKEND ---
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -122,17 +100,25 @@ async def home():
 
 @app.post("/ask")
 async def handle_request(prompt: str = Form(...)):
-    query = prompt.lower()
+    text = prompt.lower()
     img_keywords = ["image", "photo", "banao", "picture", "logo"]
 
-    if any(word in query for word in img_keywords):
-        encoded = urllib.parse.quote(prompt)
-        # Seed change karne se har baar nayi photo aayegi
-        url = f"https://pollinations.ai/p/{encoded}?width=1024&height=1024&nologo=true&seed={os.urandom(2).hex()}"
-        return {"type": "image", "result": url}
-    else:
-        res = await call_openrouter(prompt)
-        return {"type": "text", "result": res}
+    try:
+        if any(word in text for word in img_keywords):
+            encoded = urllib.parse.quote(prompt)
+            image_url = f"https://pollinations.ai/p/{encoded}?width=1024&height=1024&nologo=true&seed={os.urandom(2).hex()}"
+            return {"type": "image", "result": image_url}
+        else:
+            if not client:
+                return {"type": "text", "result": "Error: HF_TOKEN missing in environment!"}
+            
+            completion = client.chat.completions.create(
+                model="MiniMaxAI/MiniMax-M2.7:together",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return {"type": "text", "result": completion.choices[0].message.content}
+    except Exception as e:
+        return {"type": "text", "result": f"Execution Error: {str(e)}"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))

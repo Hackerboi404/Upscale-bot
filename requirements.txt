@@ -1,5 +1,4 @@
 aiogram
-youtube-search-python
 python-dotenv
 flask
-gunicorn
+requests

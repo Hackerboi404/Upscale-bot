@@ -2,4 +2,3 @@ aiogram
 python-dotenv
 flask
 requests
-pytube
